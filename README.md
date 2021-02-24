@@ -9,3 +9,4 @@
 - [confluent](https://www.confluent.io/)
     - [KAFKA on docker](https://docs.confluent.io/platform/current/quickstart/ce-docker-quickstart.html)
        - [GIT](https://github.com/confluentinc/cp-all-in-one/tree/6.1.0-post/cp-all-in-one-community)
+- [KAFKA STREAMS DSL](https://gunju-ko.github.io/kafka/kafka-stream/2018/05/28/Stream-DSL.html)

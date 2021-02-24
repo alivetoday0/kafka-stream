@@ -3,6 +3,8 @@ package own.hj.kafka.stream;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.*;
+import org.apache.kafka.streams.kstream.Consumed;
+import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.processor.Processor;
 import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.processor.ProcessorSupplier;
@@ -13,6 +15,7 @@ import org.apache.kafka.streams.state.Stores;
 import org.junit.jupiter.api.*;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,18 +24,18 @@ import static org.junit.jupiter.api.Assertions.*;
  * Reference URL: https://docs.confluent.io/platform/current/streams/developer-guide/test-streams.html
  */
 @DisplayName("A Kafka Stream")
-public class KafkaStreamTest {
+class KafkaStreamTest {
 
     private TopologyTestDriver testDriver;
     private TestInputTopic<String, Long> inputTopic;
     private TestOutputTopic<String, Long> outputTopic;
     private KeyValueStore<String, Long> store;
 
-    private Serde<String> stringSerde = new Serdes.StringSerde();
-    private Serde<Long> longSerde = new Serdes.LongSerde();
+    private final Serde<String> stringSerde = new Serdes.StringSerde();
+    private final Serde<Long> longSerde = new Serdes.LongSerde();
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         final Topology topology = new Topology();
         topology.addSource("sourceProcessor", "input-topic");
         topology.addProcessor("aggregator", new CustomMaxAggregatorSupplier(), "sourceProcessor");
@@ -59,23 +62,61 @@ public class KafkaStreamTest {
     }
 
     @AfterEach
-    public void tearDown() {
+    void tearDown() {
         testDriver.close();
     }
 
     @Test
     @DisplayName("should flush store for first time")
-    public void shouldFlushStoreForFirstTime() {
+    void shouldFlushStoreForFirstTime() {
         inputTopic.pipeInput("a", 21L);
-        assertEquals(outputTopic.readKeyValue(), new KeyValue<>("a", 21L));
+        assertEquals(new KeyValue<>("a", 21L), outputTopic.readKeyValue());
         assertTrue(outputTopic.isEmpty());
     }
 
     @Test
-    public void shouldNotUpdateStoreForSmallerValue() {
+    void shouldNotUpdateStoreForSmallerValue() {
         inputTopic.pipeInput("a", 1L);
-        assertEquals(store.get("a").longValue(), 21L);
-        assertEquals(outputTopic.readKeyValue(), new KeyValue<>("a", 21L));
+        assertEquals(21L, store.get("a").longValue());
+        assertEquals(new KeyValue<>("a", 21L), outputTopic.readKeyValue());
+        assertTrue(outputTopic.isEmpty());
+    }
+
+    @Test
+    void shouldNotUpdateStoreForLargerValue() {
+        inputTopic.pipeInput("a", 42L);
+        assertEquals(42L, store.get("a").longValue());
+        assertEquals(new KeyValue<>("a", 42L), outputTopic.readKeyValue());
+        assertTrue(outputTopic.isEmpty());
+    }
+
+    @Test
+    void shouldUpdateStoreForNewKey() {
+        inputTopic.pipeInput("b", 21L);
+        assertEquals(21L, store.get("b").longValue());
+        assertEquals(new KeyValue<>("a", 21L), outputTopic.readKeyValue());
+        assertEquals(new KeyValue<>("b", 21L), outputTopic.readKeyValue());
+        assertTrue(outputTopic.isEmpty());
+    }
+
+    @Test
+    void shouldPunctuateIfEvenTimeAdvances() {
+        final Instant recordTime = Instant.now();
+        inputTopic.pipeInput("a", 1L, recordTime);
+        assertEquals(new KeyValue<>("a", 21L), outputTopic.readKeyValue());
+
+        inputTopic.pipeInput("a", 1L, recordTime);
+        assertTrue(outputTopic.isEmpty());
+
+        inputTopic.pipeInput("a", 1L, recordTime.plusSeconds(10L));
+        assertEquals(new KeyValue<>("a", 21L), outputTopic.readKeyValue());
+        assertTrue(outputTopic.isEmpty());
+    }
+
+    @Test
+    void shouldPunctuateIfWallClockTimeAdvances() {
+        testDriver.advanceWallClockTime(Duration.ofSeconds(60));
+        assertEquals(new KeyValue<>("a", 21L), outputTopic.readKeyValue());
         assertTrue(outputTopic.isEmpty());
     }
 
